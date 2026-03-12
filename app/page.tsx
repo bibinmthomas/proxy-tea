@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { ref, get, push, set } from 'firebase/database'
+import { db } from '@/lib/firebase'
 
 type Session = {
   id: string
@@ -26,25 +28,35 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/sessions')
-      .then(r => r.json())
-      .then(data => {
-        setSessions(data)
+    get(ref(db, 'sessions')).then(snap => {
+      const data = snap.val() as Record<string, Omit<Session, 'id'>> | null
+      if (!data) {
+        setSessions([])
         setLoading(false)
-      })
+        return
+      }
+      const now = new Date().toISOString()
+      const list: Session[] = Object.entries(data)
+        .map(([id, val]) => ({ id, ...val }))
+        .filter(s => s.expires_at > now)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      setSessions(list)
+      setLoading(false)
+    })
   }, [])
 
   async function createSession(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim()) return
     setCreating(true)
-    const res = await fetch('/api/sessions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+    const now = new Date()
+    const newRef = push(ref(db, 'sessions'))
+    await set(newRef, {
+      name: name.trim(),
+      created_at: now.toISOString(),
+      expires_at: new Date(now.getTime() + 30 * 60 * 1000).toISOString(),
     })
-    const session = await res.json()
-    router.push(`/session/${session.id}`)
+    router.push(`/session/${newRef.key}`)
   }
 
   return (

@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { ref, onValue, push, set, remove } from 'firebase/database'
+import { db } from '@/lib/firebase'
 import { getVoterId } from '@/lib/voter'
 
 type Session = { id: string; name: string; created_at: string; expires_at: string }
-type Item = { id: string; session_id: string; label: string; created_at: string }
-type Vote = { id: string; item_id: string; session_id: string; voter_id: string; created_at: string }
+type Item = { id: string; label: string; created_at: string }
+type Vote = { item_id: string; voter_id: string }
 
 function useCountdown(expiresAt: string | null) {
   const [remaining, setRemaining] = useState('')
@@ -47,57 +48,52 @@ export default function SessionPage() {
   useEffect(() => {
     voterIdRef.current = getVoterId()
 
-    fetch(`/api/sessions/${id}`)
-      .then(r => {
-        if (r.status === 404) { setNotFound(true); return null }
-        return r.json()
-      })
-      .then(data => {
-        if (!data) return
-        const { items: fetchedItems, votes: fetchedVotes, ...sessionData } = data
-        setSession(sessionData)
-        setItems(fetchedItems)
-        setVotes(fetchedVotes)
+    const sessionUnsub = onValue(ref(db, `sessions/${id}`), snap => {
+      if (!snap.exists()) {
+        setNotFound(true)
         setLoading(false)
-      })
+        return
+      }
+      setSession({ id, ...snap.val() })
+      setLoading(false)
+    })
 
-    const channel = supabase
-      .channel(`session-${id}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'items', filter: `session_id=eq.${id}` },
-        (payload) => {
-          setItems(prev => [...prev, payload.new as Item])
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'votes', filter: `session_id=eq.${id}` },
-        (payload) => {
-          setVotes(prev => [...prev, payload.new as Vote])
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'DELETE', schema: 'public', table: 'votes', filter: `session_id=eq.${id}` },
-        (payload) => {
-          const deleted = payload.old as Partial<Vote>
-          setVotes(prev => prev.filter(v => !(v.item_id === deleted.item_id && v.voter_id === deleted.voter_id)))
-        }
-      )
-      .subscribe()
+    const itemsUnsub = onValue(ref(db, `items/${id}`), snap => {
+      const data = snap.val() as Record<string, Omit<Item, 'id'>> | null
+      if (!data) { setItems([]); return }
+      const list: Item[] = Object.entries(data)
+        .map(([itemId, val]) => ({ id: itemId, ...val }))
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      setItems(list)
+    })
 
-    return () => { supabase.removeChannel(channel) }
+    const votesUnsub = onValue(ref(db, `votes/${id}`), snap => {
+      const data = snap.val() as Record<string, Record<string, true>> | null
+      if (!data) { setVotes([]); return }
+      const flat: Vote[] = []
+      for (const [itemId, voters] of Object.entries(data)) {
+        for (const voterId of Object.keys(voters)) {
+          flat.push({ item_id: itemId, voter_id: voterId })
+        }
+      }
+      setVotes(flat)
+    })
+
+    return () => {
+      sessionUnsub()
+      itemsUnsub()
+      votesUnsub()
+    }
   }, [id])
 
   async function addItem(e: React.FormEvent) {
     e.preventDefault()
     if (!label.trim() || isExpired) return
     setAdding(true)
-    await fetch(`/api/sessions/${id}/items`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ label }),
+    const newItemRef = push(ref(db, `items/${id}`))
+    await set(newItemRef, {
+      label: label.trim(),
+      created_at: new Date().toISOString(),
     })
     setLabel('')
     setAdding(false)
@@ -108,19 +104,11 @@ export default function SessionPage() {
     const voterId = voterIdRef.current
     const hasVoted = votes.some(v => v.item_id === itemId && v.voter_id === voterId)
     setVotingItem(itemId)
-
+    const voteRef = ref(db, `votes/${id}/${itemId}/${voterId}`)
     if (hasVoted) {
-      await fetch(`/api/sessions/${id}/votes`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_id: itemId, voter_id: voterId }),
-      })
+      await remove(voteRef)
     } else {
-      await fetch(`/api/sessions/${id}/votes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_id: itemId, voter_id: voterId }),
-      })
+      await set(voteRef, true)
     }
     setVotingItem(null)
   }
