@@ -1,36 +1,68 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# proxy-tea
 
-## Getting Started
+A lightweight real-time voting app for deciding where to eat or drink. Create a session, add options, and vote — sessions expire after 30 minutes.
 
-First, run the development server:
+## Stack
+
+- **Next.js 16** (App Router, client components)
+- **Firebase Realtime Database** — sessions, items, and votes
+- **Tailwind CSS v4**
+- **TypeScript**
+
+## How it works
+
+- The home page lists active (non-expired) sessions and lets you create a new one
+- Each session has a 30-minute TTL — expired sessions are hidden from the list
+- Inside a session, anyone can add options and vote; votes are toggled (click again to unvote)
+- Voter identity is anonymous and stored in `localStorage` (`proxy_tea_voter_id`)
+- All data is stored under three Firebase paths: `sessions/`, `items/<sessionId>/`, `votes/<sessionId>/`
+
+## Project structure
+
+```
+app/
+  page.tsx              # Home — create/list sessions
+  session/[id]/page.tsx # Session view — add items, vote
+lib/
+  firebase.ts           # Firebase app + db init
+  voter.ts              # Anonymous voter ID (localStorage)
+```
+
+## Setup
+
+1. Clone the repo and install dependencies:
+
+```bash
+npm install
+```
+
+2. Create a `.env.local` file with your Firebase project config:
+
+```
+NEXT_PUBLIC_FIREBASE_API_KEY=
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=
+NEXT_PUBLIC_FIREBASE_DATABASE_URL=
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=
+NEXT_PUBLIC_FIREBASE_APP_ID=
+```
+
+3. Run the dev server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Firebase database rules
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Votes and items are keyed by session ID. Make sure your Firebase Realtime Database rules allow read/write for the relevant paths (adjust as needed for production).
 
-## Learn More
+## Scripts
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Command | Description |
+|---|---|
+| `npm run dev` | Start dev server |
+| `npm run build` | Production build |
+| `npm run start` | Start production server |
+| `npm run lint` | Run ESLint |
